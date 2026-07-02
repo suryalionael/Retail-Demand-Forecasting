@@ -10,7 +10,13 @@ logger = logging.getLogger(__name__)
 
 
 class Visualizer:
-    def __init__(self, style: str = "seaborn-v0_8", dpi: int = 150, figsize: tuple = (12, 6), save_path: str = "reports/figures"):
+    def __init__(
+        self,
+        style: str = "seaborn-v0_8",
+        dpi: int = 150,
+        figsize: tuple = (12, 6),
+        save_path: str = "reports/figures",
+    ):
         self.style = style
         self.dpi = dpi
         self.figsize = figsize

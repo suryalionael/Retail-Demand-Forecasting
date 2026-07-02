@@ -1,10 +1,15 @@
 import logging
 from typing import Any
 
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import mlflow
 import numpy as np
 import pandas as pd
 
+from src.data.aggregation import ForecastingDatasetBuilder
 from src.data.cleaning import DataCleaner
 from src.data.ingestion import DataIngestion
 from src.data.validation import DataValidation
@@ -25,6 +30,7 @@ class TrainingPipeline:
         self.ingestion = DataIngestion(config["data"]["raw_path"])
         self.cleaner = DataCleaner()
         self.validator = DataValidation()
+        self.agg_builder = ForecastingDatasetBuilder()
         self.feature_engineer = FeatureEngineer(
             lags=config["features"]["lags"],
             rolling_windows=config["features"]["rolling_windows"],
@@ -40,52 +46,32 @@ class TrainingPipeline:
     def run(self) -> dict[str, Any]:
         mlflow.set_experiment(self.config["mlflow"]["experiment_name"])
         logger.info("Starting training pipeline")
-        data = self.ingestion.load_data(self.config["data"]["dataset"])
-        if "train" not in data:
-            logger.error("No training data found. Attempting download...")
-            success = self.ingestion.download_favorita()
-            if not success:
-                logger.error("Cannot download dataset. Place files in data/raw/ manually.")
-                return {"status": "failed", "error": "No training data"}
-            data = self.ingestion.load_data(self.config["data"]["dataset"])
-        df = data["train"].copy()
-        df = self.cleaner.clean_column_names(df)
-        df = self.cleaner.clean_sales_data(df)
-        holiday_df = data.get("holidays_events", None)
-        if holiday_df is not None:
-            holiday_df = self.cleaner.clean_column_names(holiday_df)
-        logger.info(f"Training data shape: {df.shape}")
+        data = self.ingestion.load_data("online_retail")
+        df = data["transactions"]
+        df = self.cleaner.clean_online_retail(df)
+        daily = self.agg_builder.build_daily_sku_demand(df)
+        daily = self.agg_builder.build_daily_sku_demand(df)
+        daily = daily.sort_values(["stockcode", "date"]).reset_index(drop=True)
+        logger.info(f"Daily SKU demand shape: {daily.shape}")
         date_col = "date"
-        target = "sales"
-        group_cols = ["item_nbr"]
-        df[date_col] = pd.to_datetime(df[date_col])
-        promo_col = "onpromotion" if "onpromotion" in df.columns else None
-        df = self.feature_engineer.create_all_features(
-            df,
-            group_cols=group_cols,
-            target=target,
-            date_col=date_col,
-            holiday_df=holiday_df,
-            promo_col=promo_col,
+        target = "daily_demand"
+        group_cols = ["stockcode"]
+        daily[date_col] = pd.to_datetime(daily[date_col])
+        daily_with_features = self.feature_engineer.create_all_features(
+            daily, group_cols=group_cols, target=target, date_col=date_col
         )
-        df = self._prepare_for_prophet(df, group_cols)
-        self._train_and_evaluate_all_models(df, date_col, target, group_cols)
-        self._generate_figures(df)
+        self._train_and_evaluate_all_models(daily_with_features, date_col, target, group_cols)
+        self._generate_figures(daily, df)
         logger.info("Training pipeline completed successfully")
         return {"status": "success", "results": self.results}
 
-    def _prepare_for_prophet(self, df: pd.DataFrame, group_cols: list[str]) -> pd.DataFrame:
-        if "store_nbr" in df.columns and "item_nbr" in df.columns:
-            df["sku_id"] = df["store_nbr"].astype(str) + "_" + df["item_nbr"].astype(str)
-        return df
-
     def _train_and_evaluate_all_models(self, df, date_col, target, group_cols):
         logger.info("Training and evaluating all models...")
-        top_skus = df.groupby("item_nbr")[target].sum().sort_values(ascending=False).head(10).index
-        sample_df = df[df["item_nbr"].isin(top_skus)].copy()
-        sample_df = sample_df.sort_values([date_col, "item_nbr"]).dropna(subset=[target])
-        logger.info(f"Sample data shape for modeling: {sample_df.shape}")
-        with mlflow.start_run(run_name="full_pipeline"):
+        top_skus = df.groupby("stockcode")[target].sum().sort_values(ascending=False).head(10).index
+        sample_df = df[df["stockcode"].isin(top_skus)].copy()
+        sample_df = sample_df.sort_values([date_col, "stockcode"]).dropna(subset=[target])
+        logger.info(f"Sample data shape: {sample_df.shape}")
+        with mlflow.start_run(run_name="full_pipeline") as _:
             mlflow.log_params(self.config)
             for model_name in ["naive", "prophet", "xgboost"]:
                 if not self.config["models"][model_name]["enabled"]:
@@ -129,7 +115,7 @@ class TrainingPipeline:
         folds = wfv.split_dataframe(daily, date_col)
         all_preds = []
         all_trues = []
-        for train_df, test_df, _fold_info in folds:
+        for train_df, test_df, _ in folds:
             model.fit(train_df, date_col=date_col, target=target)
             preds = model.predict_with_series(test_df)
             all_preds.extend(preds)
@@ -149,8 +135,8 @@ class TrainingPipeline:
             horizon_days=self.config["evaluation"]["cv_horizon"],
             step_days=self.config["evaluation"]["cv_step"],
         )
-        top_sku = df.groupby("item_nbr")[target].sum().idxmax()
-        sku_df = df[df["item_nbr"] == top_sku].sort_values(date_col).dropna(subset=[target])
+        top_sku = df.groupby("stockcode")[target].sum().idxmax()
+        sku_df = df[df["stockcode"] == top_sku].sort_values(date_col).dropna(subset=[target])
         if len(sku_df) < 100:
             logger.warning(f"Not enough data for Prophet: {len(sku_df)} rows")
             self.results["prophet"] = {
@@ -164,7 +150,7 @@ class TrainingPipeline:
         folds = wfv.split_dataframe(sku_df, date_col)
         all_preds = []
         all_trues = []
-        for train_df, test_df, _fold_info in folds[:2]:
+        for train_df, test_df, _ in folds[:2]:
             try:
                 model.fit(train_df, date_col=date_col, target=target)
                 preds = model.predict_with_series(test_df, date_col=date_col)
@@ -189,13 +175,13 @@ class TrainingPipeline:
             horizon_days=self.config["evaluation"]["cv_horizon"],
             step_days=self.config["evaluation"]["cv_step"],
         )
-        top_sku = df.groupby("item_nbr")[target].sum().idxmax()
-        sku_df = df[df["item_nbr"] == top_sku].sort_values(date_col).dropna(subset=[target])
-        exclude_cols = [date_col, "sku_id", "item_nbr", "store_nbr"]
+        top_sku = df.groupby("stockcode")[target].sum().idxmax()
+        sku_df = df[df["stockcode"] == top_sku].sort_values(date_col).dropna(subset=[target])
+        exclude_cols = [date_col, "stockcode"]
         feature_cols = [
             c
             for c in sku_df.columns
-            if c not in exclude_cols and sku_df[c].dtype in ["int64", "float64"]
+            if c not in exclude_cols and sku_df[c].dtype in ["int64", "float64"] and c != target
         ]
         cols_for_xgb = feature_cols + [target]
         sku_df = sku_df.dropna(subset=cols_for_xgb)
@@ -212,7 +198,7 @@ class TrainingPipeline:
         folds = wfv.split_dataframe(sku_df, date_col)
         all_preds = []
         all_trues = []
-        for train_df, test_df, _fold_info in folds[:2]:
+        for train_df, test_df, _ in folds[:2]:
             try:
                 train_clean = train_df[cols_for_xgb].dropna()
                 test_clean = test_df[cols_for_xgb].dropna()
@@ -242,28 +228,45 @@ class TrainingPipeline:
             mlflow.log_metrics(metrics)
             logger.info(f"XGBoost metrics: {metrics}")
 
-    def _generate_figures(self, df):
+    def _generate_figures(self, daily: pd.DataFrame, raw: pd.DataFrame):
         logger.info("Generating figures...")
-        date_col = "date"
-        target = "sales"
-        fig = self.visualizer.plot_time_series(df, date_col, target)
-        self.visualizer.save_figure(fig, "time_series.png")
-        fig = self.visualizer.plot_sales_distribution(df, target)
+        daily_sum = daily.groupby("date")["daily_demand"].sum().reset_index()
+        daily_sum.columns = ["date", "sales"]
+        fig = self.visualizer.plot_time_series(daily_sum, "date", "sales")
+        self.visualizer.save_figure(fig, "daily_sales_trend.png")
+        fig = self.visualizer.plot_sales_distribution(daily_sum, "sales")
         self.visualizer.save_figure(fig, "sales_distribution.png")
-        fig = self.visualizer.plot_weekly_seasonality(df, date_col, target)
+        fig = self.visualizer.plot_weekly_seasonality(daily_sum, "date", "sales")
         self.visualizer.save_figure(fig, "weekly_seasonality.png")
-        fig = self.visualizer.plot_monthly_seasonality(df, date_col, target)
+        fig = self.visualizer.plot_monthly_seasonality(daily_sum, "date", "sales")
         self.visualizer.save_figure(fig, "monthly_seasonality.png")
-        if "is_promotion" in df.columns or "promo" in df.columns:
-            fig = self.visualizer.plot_promotion_analysis(df, target)
-            self.visualizer.save_figure(fig, "promotion_analysis.png")
-        numeric_df = df.select_dtypes(include=[np.number])
-        if len(numeric_df.columns) > 1:
-            fig = self.visualizer.plot_heatmap(numeric_df, "Feature Correlation Heatmap")
-            self.visualizer.save_figure(fig, "correlation_heatmap.png")
-        if "family" in df.columns:
-            fig = self.visualizer.plot_category_analysis(df, "family", target)
-            self.visualizer.save_figure(fig, "category_analysis.png")
+        top_skus = (
+            daily.groupby("stockcode")["daily_demand"].sum().sort_values(ascending=False).head(20)
+        )
+        fig, ax = plt.subplots(figsize=self.visualizer.figsize)
+        ax.bar(range(len(top_skus)), top_skus.values, color="teal", alpha=0.7)
+        ax.set_xticks(range(len(top_skus)))
+        ax.set_xticklabels([str(s) for s in top_skus.index], rotation=45, ha="right")
+        ax.set_xlabel("SKU")
+        ax.set_ylabel("Total Demand")
+        ax.set_title("Top 20 SKUs by Total Demand")
+        ax.grid(True, alpha=0.3)
+        plt.tight_layout()
+        self.visualizer.save_figure(fig, "top_skus.png")
+        if "country" in raw.columns:
+            country_sales = (
+                raw.groupby("country")["quantity"].sum().sort_values(ascending=False).head(20)
+            )
+            fig, ax = plt.subplots(figsize=self.visualizer.figsize)
+            ax.bar(range(len(country_sales)), country_sales.values, color="purple", alpha=0.7)
+            ax.set_xticks(range(len(country_sales)))
+            ax.set_xticklabels(country_sales.index, rotation=45, ha="right")
+            ax.set_xlabel("Country")
+            ax.set_ylabel("Total Quantity")
+            ax.set_title("Top 20 Countries by Quantity")
+            ax.grid(True, alpha=0.3)
+            plt.tight_layout()
+            self.visualizer.save_figure(fig, "country_distribution.png")
         if "naive" in self.results:
             fig = self.visualizer.plot_actual_vs_forecast(
                 np.array(self.results["naive"]["predictions"]),
@@ -271,6 +274,10 @@ class TrainingPipeline:
                 "Naive: Actual vs Forecast",
             )
             self.visualizer.save_figure(fig, "naive_actual_vs_forecast.png")
+        numeric_df = daily_sum.select_dtypes(include=[np.number])
+        if len(numeric_df.columns) > 1:
+            fig = self.visualizer.plot_heatmap(numeric_df, "Feature Correlation Heatmap")
+            self.visualizer.save_figure(fig, "correlation_heatmap.png")
         logger.info("Figures generated successfully")
 
 
@@ -280,6 +287,11 @@ def main():
 
     setup_logger()
     config = load_config()
+    config["models"]["naive"]["period"] = 7
+    config["evaluation"]["cv_folds"] = 3
+    config["evaluation"]["cv_initial"] = 90
+    config["evaluation"]["cv_horizon"] = 14
+    config["evaluation"]["cv_step"] = 30
     pipeline = TrainingPipeline(config)
     results = pipeline.run()
     print(f"Pipeline status: {results.get('status')}")

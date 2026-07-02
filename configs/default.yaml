@@ -4,7 +4,7 @@ data:
   raw_path: "data/raw"
   interim_path: "data/interim"
   processed_path: "data/processed"
-  dataset: "favorita"  # favorita, m5, rossmann
+  dataset: "online_retail"
   test_size: 0.2
   validation_size: 0.1
   random_state: 42
@@ -15,31 +15,25 @@ features:
   rolling_stats: ["mean", "median", "std", "min", "max"]
   use_ema: true
   use_calendar: true
-  use_holidays: true
-  use_promotions: true
-  use_prices: true
-  use_store_features: true
-  use_category_features: true
 
 models:
   naive:
     enabled: true
-    seasonality: "yearly"  # yearly, weekly
-    period: 365
+    seasonality: "yearly"
+    period: 7
 
   prophet:
     enabled: true
     yearly_seasonality: true
     weekly_seasonality: true
     daily_seasonality: false
-    monthly_seasonality: true
     seasonality_mode: "multiplicative"
     changepoint_prior_scale: 0.05
     seasonality_prior_scale: 10.0
     holidays_prior_scale: 10.0
     n_changepoints: 25
     uncertainty_samples: 1000
-    tune_hyperparameters: true
+    tune_hyperparameters: false
     tune_trials: 20
 
   xgboost:
@@ -54,7 +48,7 @@ models:
     reg_alpha: 0
     reg_lambda: 1
     early_stopping_rounds: 50
-    tune_hyperparameters: true
+    tune_hyperparameters: false
     tune_trials: 30
     n_folds: 5
 
@@ -73,10 +67,10 @@ models:
 
 evaluation:
   metrics: ["mae", "rmse", "mape", "smape", "wape", "bias", "forecast_accuracy"]
-  cv_folds: 5
-  cv_step: 30  # days
-  cv_initial: 365  # initial training days
-  cv_horizon: 30  # forecast horizon in days
+  cv_folds: 3
+  cv_step: 30
+  cv_initial: 90
+  cv_horizon: 14
 
 visualization:
   style: "seaborn-v0_8"

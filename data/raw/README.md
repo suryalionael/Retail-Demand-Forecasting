@@ -1,49 +1,55 @@
-# Dataset: Favorita Grocery Sales Forecasting
+# Dataset: UCI Online Retail II
 
-This project uses the **Corporación Favorita Grocery Sales Forecasting** dataset from Kaggle.
+This project uses the **UCI Online Retail II** dataset.
 
-## Automatic Download
+## Source
 
-Run:
+https://archive.ics.uci.edu/dataset/502/online+retail+ii
 
-```bash
-python src/run_pipeline.py --download-data
-```
+## File
 
-This uses `kagglehub` to download the dataset automatically.
-
-## Manual Download
-
-If automatic download fails:
-
-1. Go to https://www.kaggle.com/competitions/favorita-grocery-sales-forecasting/data
-2. Accept the competition rules
-3. Download and extract the zip file
-4. Place the following CSV files in `data/raw/`:
-
-   - `train.csv`
-   - `test.csv`
-   - `stores.csv`
-   - `items.csv`
-   - `transactions.csv`
-   - `oil.csv`
-   - `holidays_events.csv`
-   - `sample_submission.csv`
+Place `online_retail_II.xlsx` in this directory.
 
 ## Dataset Description
 
-- **train.csv**: Daily sales data by store and item
-- **test.csv**: Test data for predictions
-- **stores.csv**: Store information (city, state, type, cluster)
-- **items.csv**: Item information (family, class, perishable)
-- **transactions.csv**: Transaction counts by store and date
-- **oil.csv**: Daily oil prices (economic indicator)
-- **holidays_events.csv**: Holidays and events data
+The dataset contains transaction-level retail data from a UK-based online retailer.
 
-## Alternative Datasets
+### Columns
 
-If you prefer a different dataset:
+- **Invoice**: Invoice number (prefix "C" indicates cancellation)
+- **StockCode**: Product (SKU) code
+- **Description**: Product description
+- **Quantity**: Quantity of items in the transaction
+- **InvoiceDate**: Transaction date and time
+- **Price**: Unit price
+- **Customer ID**: Customer identifier
+- **Country**: Customer country
 
-1. **M5 Forecasting**: https://www.kaggle.com/competitions/m5-forecasting-accuracy
-2. **Rossmann Store Sales**: https://www.kaggle.com/competitions/rossmann-store-sales
-3. **Walmart Recruiting**: https://www.kaggle.com/competitions/walmart-recruiting-store-sales-forecasting
+### Coverage
+
+- Period: December 2009 to December 2011
+- ~1M transactions across two sheets
+- ~4,000-5,000 unique SKUs
+- ~4,300 unique customers
+- 38-40 countries
+
+## Preprocessing
+
+The cleaning pipeline:
+
+1. Removes duplicate rows
+2. Removes cancelled invoices (Invoice starting with "C")
+3. Removes returns (negative quantities)
+4. Removes invalid prices (Price <= 0)
+5. Removes invalid quantities (Quantity <= 0)
+6. Fills missing descriptions and customer IDs with "unknown"
+
+## Aggregation
+
+Transactions are aggregated to daily SKU-level demand:
+
+- Date x StockCode
+- DailyDemand: sum of quantities
+- Revenue: sum of quantity * price
+- NumberOfTransactions: unique invoice count
+- AvgPrice: mean unit price per day

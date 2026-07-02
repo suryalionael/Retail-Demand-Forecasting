@@ -21,25 +21,21 @@ class DataValidation:
             {"dtype": df.dtypes, "nunique": df.nunique(), "null_count": df.isnull().sum()}
         )
 
-    def validate_sales_data(self, df: pd.DataFrame) -> dict:
+    def validate_online_retail(self, df: pd.DataFrame) -> dict:
         issues = {}
-        if "sales" in df.columns:
-            negative = (df["sales"] < 0).sum()
-            zero = (df["sales"] == 0).sum()
-            issues["negative_sales"] = int(negative)
-            issues["zero_sales"] = int(zero)
-        if "date" in df.columns:
-            df["date"] = pd.to_datetime(df["date"])
-            date_range = (df["date"].max() - df["date"].min()).days
+        if "quantity" in df.columns:
+            issues["negative_quantity"] = int((df["quantity"] < 0).sum())
+            issues["zero_quantity"] = int((df["quantity"] == 0).sum())
+        if "price" in df.columns:
+            issues["invalid_price"] = int((df["price"] <= 0).sum())
+        if "invoice" in df.columns:
+            issues["cancelled_invoices"] = int(df["invoice"].astype(str).str.startswith("C").sum())
+        if "invoicedate" in df.columns:
+            df = df.copy()
+            df["invoicedate"] = pd.to_datetime(df["invoicedate"])
+            date_range = (df["invoicedate"].max() - df["invoicedate"].min()).days
             issues["date_range_days"] = date_range
-            issues["missing_dates"] = self._find_missing_dates(df)
         return issues
-
-    def _find_missing_dates(self, df: pd.DataFrame) -> int:
-        full_range = pd.date_range(start=df["date"].min(), end=df["date"].max(), freq="D")
-        observed = pd.to_datetime(df["date"].unique())
-        missing = full_range.difference(observed)
-        return len(missing)
 
     def generate_validation_report(self, df: pd.DataFrame, name: str = "dataset") -> str:
         lines = [f"=== Data Validation Report: {name} ==="]
@@ -54,11 +50,11 @@ class DataValidation:
             lines.append("\nNo missing values found.")
         dupes = self.check_duplicates(df)
         lines.append(f"Duplicate rows: {dupes}")
-        if "sales" in df.columns:
-            lines.append("\nSales stats:")
-            lines.append(f"  Mean: {df['sales'].mean():.2f}")
-            lines.append(f"  Median: {df['sales'].median():.2f}")
-            lines.append(f"  Std: {df['sales'].std():.2f}")
-            lines.append(f"  Min: {df['sales'].min():.2f}")
-            lines.append(f"  Max: {df['sales'].max():.2f}")
+        if "quantity" in df.columns:
+            lines.append("\nQuantity stats:")
+            lines.append(f"  Mean: {df['quantity'].mean():.2f}")
+            lines.append(f"  Median: {df['quantity'].median():.2f}")
+            lines.append(f"  Std: {df['quantity'].std():.2f}")
+            lines.append(f"  Min: {df['quantity'].min():.2f}")
+            lines.append(f"  Max: {df['quantity'].max():.2f}")
         return "\n".join(lines)

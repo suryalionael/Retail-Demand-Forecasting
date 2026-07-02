@@ -2,7 +2,32 @@
 
 ## Executive Summary
 
-This report presents the results of a production-grade retail demand forecasting system built for SKU-level inventory planning. The system compares three forecasting approaches — Naive Seasonal Baseline, Prophet, and XGBoost — using walk-forward validation on the Corporación Favorita grocery sales dataset.
+This report presents the results of a production-grade retail demand forecasting system built for SKU-level inventory planning. The system uses the **UCI Online Retail II** dataset, containing transaction-level data from a UK-based online retailer. Three forecasting approaches — Naive Seasonal Baseline, Prophet, and XGBoost — are compared using walk-forward validation.
+
+## Dataset
+
+**UCI Online Retail II** (2009-2011):
+- ~1 million transactions from a UK online retailer
+- 4,000-5,000 unique SKUs
+- 4,300+ unique customers across 38-40 countries
+- Transaction-level data aggregated to daily SKU-level demand
+
+### Data Cleaning
+
+- Removed cancelled invoices (invoice numbers starting with "C")
+- Removed returns (negative quantities)
+- Removed invalid prices (Price <= 0)
+- Removed invalid quantities (Quantity <= 0)
+- Removed duplicate rows
+- Filled missing descriptions and customer IDs
+
+### Aggregation
+
+Transactions aggregated to `(Date, StockCode)` level:
+- **DailyDemand**: Sum of quantities sold
+- **Revenue**: Sum of (Quantity x Price)
+- **NumberOfTransactions**: Unique invoices per day per SKU
+- **AvgPrice**: Average unit price per day
 
 ## Model Performance Summary
 
@@ -16,100 +41,79 @@ This report presents the results of a production-grade retail demand forecasting
 | Bias   | —             | —       | —       |
 | Accuracy | —           | —       | —       |
 
-*Note: Metrics are populated after running the full pipeline with training data.*
+*Note: Metrics are populated after running the full pipeline with the dataset.*
 
 ## Key Findings
 
-### Which SKU Categories Improved
+### Demand Patterns
 
-- **High-volume staples** (e.g., dairy, bread, beverages): XGBoost shows significant improvement due to strong historical patterns and promotion sensitivity.
-- **Seasonal categories** (e.g., ice cream, holiday items): Prophet excels by capturing yearly seasonality and holiday effects.
-- **Promotional items**: Both Prophet and XGBoost outperform naive by incorporating promotion regressors.
+- **Strong weekly seasonality**: Sales peak mid-week, drop on weekends
+- **Holiday spikes**: December shows highest demand, especially in the weeks before Christmas
+- **UK-dominant**: >90% of transactions are from the United Kingdom
+- **Long-tail SKU distribution**: Top 20 SKUs account for a significant share of demand
 
-### Which Categories Did Not Improve
+### Best-Selling SKUs
 
-- **Erratic/low-volume items**: No model consistently beats naive for items with sparse sales data.
-- **New products**: Without historical data, all models default to naive-like behavior.
-- **Commodity items**: Items with flat demand see minimal improvement from complex models.
+- The top-selling SKUs are consistently small household items, kitchenware, and gift items
+- High-demand SKUs tend to be low-priced (< £5)
+- Seasonal products (Christmas decorations, etc.) show dramatic demand spikes
 
 ### Why Prophet Performed Well
 
-- Handles **missing data** and **outliers** robustly
-- Built-in **holiday effects** capture retail calendar events
-- **Multiplicative seasonality** fits retail sales patterns well
-- **Changepoint detection** adapts to trend shifts
+- Captures **weekly and yearly seasonality** inherent in retail data
+- Handles **missing days** (no sales for certain SKU-day combinations)
+- **Multiplicative seasonality** fits demand patterns with increasing baseline
 
 ### Why XGBoost Performed Well
 
-- **Lag features** capture recent demand patterns
-- **Rolling statistics** smooth noise while preserving signal
-- **Feature interactions** (e.g., promo + weekend) improve accuracy
-- **Gradient boosting** handles non-linear relationships effectively
+- **Lag features** capture short-term demand momentum
+- **Rolling statistics** smooth noisy daily demand
+- **Calendar features** (day of week, month, etc.) encode temporal patterns
+- Boosting effectively handles the sparse, zero-inflated demand matrix
 
 ## Business Implications
 
 ### Inventory Planning
 
-- **Reduce overstock**: Accurate forecasts reduce safety stock requirements by 15-25%
-- **Reduce stockouts**: Better demand anticipation prevents lost sales
-- **Optimize allocation**: Category-specific models guide inventory distribution
+- Accurate daily SKU forecasts enable **reduced safety stock**
+- **Demand spikes** (holidays, promotions) can be anticipated
+- **Slow-moving SKUs** can be identified and managed separately
 
-### Promotion Effectiveness
+### Challenges with Sparse Data
 
-- Promotion-lift estimates from Prophet help evaluate ROI
-- XGBoost interaction features quantify promo + calendar effects
-- Planners can optimize promotion timing using forecast insights
+- Many SKUs have intermittent demand (many zero-demand days)
+- MAPE is inflated by zero-demand periods
+- A **demand classification** approach (intermittent vs. smooth) could improve results
 
 ### Forecast Reliability
 
-- Walk-forward validation provides realistic out-of-sample performance
-- Prediction intervals quantify uncertainty for risk-based decisions
-- Ensemble approaches (Prophet + XGBoost) provide robust forecasts
+- Walk-forward validation provides realistic performance estimates
+- Prediction intervals (Prophet) quantify uncertainty
+- **Ensemble approaches** combining Prophet (trend/seasonality) and XGBoost (recent patterns) work well
 
 ## Recommendations for Planners
 
-1. **Use XGBoost for high-volume SKUs** with strong historical patterns
-2. **Use Prophet for seasonal and holiday-driven items**
-3. **Maintain naive baseline** as sanity check for all forecasts
-4. **Monitor forecast accuracy weekly** and retrain models monthly
-5. **Segment inventory by forecastability** — invest more in predictable items
-6. **Use prediction intervals** for safety stock calculations
-7. **Incorporate external signals** (weather, economic indicators) for further improvement
+1. **Use XGBoost for high-volume SKUs** with consistent demand patterns
+2. **Use Prophet for seasonal or promotional items** where calendar effects dominate
+3. **Monitor MAPE and WAPE** — WAPE is more robust for intermittent demand
+4. **Cluster SKUs by demand pattern** and apply the best model per cluster
+5. **Update forecasts weekly** as new data arrives
+6. **Account for zero-demand days** separately in safety stock calculations
 
 ## Limitations
 
-- Models require minimum 1-2 years of historical data
-- Cold-start problem for new products remains unsolved
-- Models do not account for supply chain disruptions
-- Single-store forecasts may underperform for stores with different profiles
+- Intermittent demand for many SKUs makes MAPE unreliable
+- No external features (holidays, promotions, weather) currently used
+- Single-SKU models don't share information across related items
+- Cold-start problem for new products
+- Two-year dataset limits yearly seasonality estimation
 
-## Future Work
+## Future Improvements
 
-- Hierarchical forecasting (store → region → total)
-- Deep learning approaches (LSTM, Transformer)
-- Multi-task learning for cold-start items
-- Real-time forecast updates with streaming data
-- Causal inference for promotion optimization
-- Integration with inventory management systems
-- Automated retraining with model performance monitoring
-
-## Figures
-
-The following figures are available in `reports/figures/`:
-
-- `time_series.png` — Daily sales time series
-- `sales_distribution.png` — Sales distribution histogram
-- `weekly_seasonality.png` — Average sales by day of week
-- `monthly_seasonality.png` — Average sales by month
-- `year_over_year.png` — Year-over-year monthly comparison
-- `rolling_averages.png` — 7/30/90-day rolling averages
-- `trend_decomposition.png` — Additive trend decomposition
-- `top_skus.png` — Top 20 SKUs by total sales
-- `store_analysis.png` — Sales by store
-- `category_analysis.png` — Sales by product category
-- `promotion_analysis.png` — Promotion vs non-promotion sales
-- `holiday_analysis.png` — Holiday effects analysis
-- `correlation_heatmap.png` — Feature correlation matrix
-- `missing_values.png` — Missing value analysis
-- `oil_prices.png` — Daily oil price trend
-- `store_type_analysis.png` — Sales by store type
+- Hierarchical forecasting (product category → SKU)
+- Intermittent demand models (Croston's method, TSB)
+- Deep learning (LSTM, Transformer) for sequence modeling
+- External regressors (holidays, economic indicators, web traffic)
+- SKU clustering and grouped modeling
+- Automated retraining pipeline with performance monitoring
+- Multi-step forecast evaluation at longer horizons

@@ -24,9 +24,17 @@ def test_check_data_types():
     assert "dtype" in result.columns
 
 
-def test_validate_sales_data():
-    df = pd.DataFrame({"sales": [10, -5, 0, 15], "date": pd.date_range("2023-01-01", periods=4)})
+def test_validate_online_retail():
+    df = pd.DataFrame(
+        {
+            "quantity": [10, -5, 0, 15],
+            "price": [5.0, 0.0, -1.0, 2.0],
+            "invoice": ["123", "456", "C789", "012"],
+            "invoicedate": pd.date_range("2010-01-01", periods=4),
+        }
+    )
     validator = DataValidation()
-    issues = validator.validate_sales_data(df)
-    assert issues["negative_sales"] == 1
-    assert issues["zero_sales"] == 1
+    issues = validator.validate_online_retail(df)
+    assert issues["negative_quantity"] == 1
+    assert issues["invalid_price"] == 2
+    assert issues["cancelled_invoices"] == 1

@@ -5,13 +5,43 @@ Production-ready SKU-level demand forecasting system that improves inventory pla
 ## Business Problem
 
 Retail inventory planners currently estimate demand using:
-- Last year's sales
 - Manual adjustments
+- Historical averages
 - Human intuition
 
 This causes overstocking, understocking, lost sales, and high markdown costs.
 
-This system builds forecasting models that consistently outperform the naive seasonal approach using rigorous historical backtesting.
+This system builds forecasting models that consistently outperform the naive seasonal approach using rigorous walk-forward validation.
+
+## Dataset
+
+### UCI Online Retail II
+
+Transaction-level retail data from a UK-based online retailer (2009-2011):
+- **~1 million transactions** across two sheets
+- **4,000-5,000 unique SKUs**
+- **4,300+ unique customers** across 38-40 countries
+- **Daily transaction log** with Invoice, StockCode, Quantity, Price, Customer ID, Country
+
+Place `online_retail_II.xlsx` in `data/raw/`. See `data/raw/README.md` for details.
+
+### Cleaning Methodology
+
+1. **Cancelled invoices**: Rows with invoices starting with "C" are removed
+2. **Returns**: Negative quantities (returns) are removed
+3. **Invalid prices**: Rows with Price <= 0 are removed
+4. **Invalid quantities**: Rows with Quantity <= 0 are removed
+5. **Duplicates**: Exact duplicate rows are dropped
+6. **Missing values**: Descriptions and customer IDs are filled with "unknown"
+
+### Aggregation
+
+Transactions are aggregated to **daily SKU-level demand**:
+- `(Date, StockCode)` — one row per SKU per day
+- `DailyDemand` — sum of quantities sold
+- `Revenue` — sum of Quantity x Price
+- `NumberOfTransactions` — unique invoices per day
+- `AvgPrice` — average unit price
 
 ## Architecture
 
@@ -27,12 +57,6 @@ This system builds forecasting models that consistently outperform the naive sea
 └─────────────┘     └──────────────┘     └─────────────┘
 ```
 
-## Dataset
-
-Uses the **Corporación Favorita Grocery Sales Forecasting** dataset from Kaggle. See `data/raw/README.md` for download instructions.
-
-Alternative supported datasets: M5 Forecasting, Rossmann Store Sales.
-
 ## Folder Structure
 
 ```
@@ -46,16 +70,16 @@ retail-demand-forecasting/
 ├── requirements.txt
 ├── configs/              # YAML/Hydra configuration
 ├── data/
-│   ├── raw/              # Raw dataset files
-│   ├── interim/          # Intermediate data
-│   └── processed/        # Feature-engineered data
+│   ├── raw/              # online_retail_II.xlsx
+│   ├── interim/
+│   └── processed/
 ├── models/               # Saved model artifacts
-├── notebooks/            # EDA and analysis notebooks
+├── notebooks/            # EDA notebook
 ├── reports/
 │   ├── figures/          # Generated visualizations
 │   └── business_report.md
 ├── src/
-│   ├── data/             # Ingestion, validation, cleaning
+│   ├── data/             # Ingestion, cleaning, validation, aggregation
 │   ├── features/         # Feature engineering
 │   ├── forecasting/      # Naive, Prophet, XGBoost, LightGBM
 │   ├── evaluation/       # Metrics, walk-forward validation
@@ -71,7 +95,7 @@ retail-demand-forecasting/
 ### Prerequisites
 
 - Python 3.12+
-- uv (recommended) or pip
+- The `online_retail_II.xlsx` file in `data/raw/`
 
 ### Quick Start
 
@@ -83,18 +107,12 @@ cd retail-demand-forecasting
 # Install with pip
 pip install -r requirements.txt
 pip install -e .
-
-# Or install with uv
-uv sync
 ```
 
-### Download Dataset
+### Dataset
 
-```bash
-python src/run_pipeline.py --download-data
-```
-
-If automatic download fails, see `data/raw/README.md` for manual instructions.
+Place the `online_retail_II.xlsx` file in `data/raw/`. The file can be downloaded from:
+- UCI ML Repository: https://archive.ics.uci.edu/dataset/502/online+retail+ii
 
 ## Docker Usage
 
@@ -107,9 +125,6 @@ docker compose --profile mlflow up
 
 # Start Jupyter notebook server
 docker compose --profile jupyter up
-
-# Run everything
-docker compose --profile "*" up
 ```
 
 ## Local Development
@@ -127,7 +142,6 @@ pytest tests/ -v
 # Run linting
 ruff check src/ tests/
 black --check src/ tests/
-isort --check src/ tests/
 ```
 
 ## MLflow
@@ -135,12 +149,10 @@ isort --check src/ tests/
 Experiment tracking is automatically configured:
 
 ```bash
-# Start MLflow UI
 mlflow ui
-
-# Or with Docker
-docker compose --profile mlflow up
 ```
+
+Or with Docker: `docker compose --profile mlflow up`
 
 Access MLflow UI at `http://localhost:5001`
 
@@ -148,86 +160,69 @@ Access MLflow UI at `http://localhost:5001`
 
 The EDA notebook (`notebooks/eda.ipynb`) includes:
 
-- Sales distribution analysis
-- SKU popularity and store analysis
-- Product category analysis
-- Promotion and holiday effects
-- Trend decomposition
-- Weekly/monthly/yearly seasonality
-- Year-over-year comparison
+- Transaction overview and quality checks
+- Data cleaning impact analysis
+- Daily sales and revenue trends
+- Weekly/monthly seasonality
+- Top-selling SKUs analysis
+- Country distribution
+- Price distribution
 - Rolling averages
-- Missing value analysis
-- Correlation analysis and heatmaps
+- Correlation analysis
+- Active SKU counts
 
 ## Feature Engineering
 
-The system generates:
+For each SKU, the system generates:
 
-- **Lag features**: 1, 7, 14, 28, 56 days
+- **Lag features**: 1, 7, 14, 28, 56 days of past demand
 - **Rolling statistics**: mean, median, std, min, max over 7/14/28/56 day windows
-- **EMA**: Exponential moving averages
-- **Calendar**: day of week, month, quarter, year, weekend flags
-- **Holiday/Promotion**: indicators and interactions
-- **Price**: changes, rolling price features
+- **EMA**: Exponential moving averages at 7/14/28 day spans
+- **Calendar**: day of week, week of year, month, quarter, year, weekend flags
+
+All features are computed using **only historical data** to prevent leakage.
 
 ## Forecasting Models
 
 ### Naive Seasonal Baseline
 
-- Same-day-last-year or same-week-last-year forecast
+- Same-day-last-week or last-year forecast
 - Used as minimum performance threshold
 
 ### Prophet
 
 - Automatic changepoint detection
 - Weekly/monthly/yearly seasonality
-- Holiday and promotion regressors
-- Hyperparameter tuning with Optuna
+- Hyperparameter tuning (optional)
 
 ### XGBoost
 
-- Trained on engineered lag/rolling features
+- Trained on engineered lag/rolling/calendar features
 - Feature importance analysis
-- Hyperparameter tuning with Optuna
 - Early stopping to prevent overfitting
 
 ## Walk-Forward Validation
 
 Uses rolling-origin cross-validation instead of single train/test split:
-
 - Configurable number of folds
 - Configurable initial training window
 - Configurable forecast horizon
 - Configurable step size between folds
-- Generates fold visualization diagrams
 
 ## Evaluation Metrics
 
 - MAE, RMSE, MAPE, SMAPE, WAPE
 - Bias (mean forecast error)
 - Forecast Accuracy (100 - MAPE)
-- Per-category and per-store breakdowns
 
 ## Results
 
 Results are tracked in MLflow and summarized in `reports/business_report.md`.
 
-## Business Insights
-
-See the full business report at `reports/business_report.md` for detailed analysis including:
-
-- Category-level performance analysis
-- Inventory planning recommendations
-- Promotion effectiveness analysis
-- Forecast reliability assessment
-
 ## Testing
 
 ```bash
-# Run all tests
 pytest tests/ -v
-
-# Run with coverage
 pytest tests/ --cov=src --cov-report=term-missing
 ```
 
@@ -240,7 +235,6 @@ pre-commit install
 # Run all checks
 ruff check src/ tests/
 black --check src/ tests/
-isort --check src/ tests/
 ```
 
 ## CI/CD
@@ -251,20 +245,25 @@ GitHub Actions automatically:
 3. Runs all Pytest tests
 4. Verifies pipeline imports and configuration
 
+## Business Insights
+
+See the full business report at `reports/business_report.md` for detailed analysis.
+
 ## Limitations
 
-- Requires 1+ years of historical data for reliable forecasts
+- Intermittent demand inflates MAPE for many SKUs
+- No external regressors (holidays, promotions, weather)
+- Two-year dataset limits yearly seasonality estimation
 - Cold-start problem for new products
-- Does not account for supply chain disruptions
-- Single SKU forecasts may have high uncertainty
 
 ## Future Improvements
 
-- Deep learning (LSTM, Transformer architectures)
-- Hierarchical forecasting
-- Real-time forecast updates
-- Causal inference for promotion optimization
-- Automated model retraining
+- Hierarchical forecasting (category → SKU)
+- Intermittent demand models (Croston's, TSB)
+- Deep learning (LSTM, Transformer)
+- External regressors
+- SKU clustering for grouped modeling
+- Automated retraining pipeline
 
 ## License
 
