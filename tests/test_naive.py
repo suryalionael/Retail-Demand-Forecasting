@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from src.forecasting.naive import NaiveSeasonalForecaster
+from src.forecasting.naive_model import NaiveSeasonalForecaster
 
 
 def test_naive_forecaster():

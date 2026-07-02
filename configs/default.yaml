@@ -50,20 +50,6 @@ models:
     early_stopping_rounds: 50
     tune_hyperparameters: false
     tune_trials: 30
-    n_folds: 5
-
-  lightgbm:
-    enabled: false
-    n_estimators: 1000
-    max_depth: -1
-    learning_rate: 0.01
-    num_leaves: 31
-    subsample: 0.8
-    colsample_bytree: 0.8
-    min_child_samples: 20
-    reg_alpha: 0
-    reg_lambda: 0
-    tune_hyperparameters: false
 
 evaluation:
   metrics: ["mae", "rmse", "mape", "smape", "wape", "bias", "forecast_accuracy"]
@@ -82,7 +68,7 @@ visualization:
 mlflow:
   tracking_uri: "mlruns"
   experiment_name: "retail_demand_forecasting"
-  auto_log: true
+  auto_log: false
 
 logging:
   level: "INFO"

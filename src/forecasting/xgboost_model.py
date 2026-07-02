@@ -43,8 +43,8 @@ class XGBoostForecaster:
         y_val: pd.Series | np.ndarray | None = None,
     ) -> "XGBoostForecaster":
         self.feature_names = list(X_train.columns)
+        early_stopping_rounds = self.config.get("early_stopping_rounds", 50)
         eval_set = None
-        self.config.get("early_stopping_rounds", 50)
         if X_val is not None and y_val is not None:
             eval_set = [(X_train.values, y_train), (X_val.values, y_val)]
         self.model = self._build_model()
@@ -52,6 +52,7 @@ class XGBoostForecaster:
             X_train.values,
             y_train,
             eval_set=eval_set,
+            early_stopping_rounds=early_stopping_rounds if eval_set else None,
             verbose=False,
         )
         self.fitted = True

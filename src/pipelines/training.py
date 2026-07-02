@@ -16,7 +16,7 @@ from src.data.validation import DataValidation
 from src.evaluation.backtesting import WalkForwardValidator
 from src.evaluation.metrics import calculate_all_metrics, create_comparison_table
 from src.features.engineering import FeatureEngineer
-from src.forecasting.naive import NaiveSeasonalForecaster
+from src.forecasting.naive_model import NaiveSeasonalForecaster
 from src.forecasting.prophet_model import ProphetForecaster
 from src.forecasting.xgboost_model import XGBoostForecaster
 from src.visualization.plots import Visualizer
@@ -49,7 +49,6 @@ class TrainingPipeline:
         data = self.ingestion.load_data("online_retail")
         df = data["transactions"]
         df = self.cleaner.clean_online_retail(df)
-        daily = self.agg_builder.build_daily_sku_demand(df)
         daily = self.agg_builder.build_daily_sku_demand(df)
         daily = daily.sort_values(["stockcode", "date"]).reset_index(drop=True)
         logger.info(f"Daily SKU demand shape: {daily.shape}")
@@ -123,7 +122,7 @@ class TrainingPipeline:
         all_preds = np.array(all_preds)
         all_trues = np.array(all_trues)
         metrics = calculate_all_metrics(all_trues, all_preds)
-        self.results["naive"] = {"metrics": metrics, "predictions": all_preds}
+        self.results["naive"] = {"metrics": metrics, "predictions": all_preds, "actuals": all_trues}
         mlflow.log_metrics(metrics)
         logger.info(f"Naive metrics: {metrics}")
 
@@ -163,7 +162,7 @@ class TrainingPipeline:
             all_preds = np.array(all_preds)
             all_trues = np.array(all_trues)
             metrics = calculate_all_metrics(all_trues, all_preds)
-            self.results["prophet"] = {"metrics": metrics, "predictions": all_preds}
+            self.results["prophet"] = {"metrics": metrics, "predictions": all_preds, "actuals": all_trues}
             mlflow.log_metrics(metrics)
             logger.info(f"Prophet metrics: {metrics}")
 
@@ -223,6 +222,7 @@ class TrainingPipeline:
             self.results["xgboost"] = {
                 "metrics": metrics,
                 "predictions": all_preds,
+                "actuals": all_trues,
                 "feature_importance": imp,
             }
             mlflow.log_metrics(metrics)
@@ -267,13 +267,14 @@ class TrainingPipeline:
             ax.grid(True, alpha=0.3)
             plt.tight_layout()
             self.visualizer.save_figure(fig, "country_distribution.png")
-        if "naive" in self.results:
-            fig = self.visualizer.plot_actual_vs_forecast(
-                np.array(self.results["naive"]["predictions"]),
-                np.array(self.results["naive"]["predictions"]),
-                "Naive: Actual vs Forecast",
-            )
-            self.visualizer.save_figure(fig, "naive_actual_vs_forecast.png")
+        for model_name in ["naive", "prophet", "xgboost"]:
+            if model_name in self.results and "actuals" in self.results[model_name]:
+                fig = self.visualizer.plot_actual_vs_forecast(
+                    self.results[model_name]["actuals"],
+                    self.results[model_name]["predictions"],
+                    f"{model_name.title()}: Actual vs Forecast",
+                )
+                self.visualizer.save_figure(fig, f"{model_name}_actual_vs_forecast.png")
         numeric_df = daily_sum.select_dtypes(include=[np.number])
         if len(numeric_df.columns) > 1:
             fig = self.visualizer.plot_heatmap(numeric_df, "Feature Correlation Heatmap")
