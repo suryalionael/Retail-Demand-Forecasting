@@ -60,7 +60,7 @@ jobs:
           from src.features.engineering import FeatureEngineer;
           from src.evaluation.metrics import calculate_all_metrics;
           from src.evaluation.backtesting import WalkForwardValidator;
-          from src.forecasting.naive import NaiveSeasonalForecaster;
+          from src.forecasting.naive_model import NaiveSeasonalForecaster;
           print('All imports successful')
         "
       - name: Generate config validation
